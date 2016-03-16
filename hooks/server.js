@@ -1,4 +1,5 @@
 require express
+require validate.js
 require Post
 
 require Hook
