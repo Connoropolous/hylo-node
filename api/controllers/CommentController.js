@@ -1,16 +1,7 @@
-var commentAttributes = function (comment) {
-  var attrs = _.pick(comment.toJSON(), 'id', 'comment_text', 'created_at', 'user')
-  var thanks = comment.relations.thanks
-
-  return _.extend({
-    isThanked: !!(thanks && thanks.first())
-  }, attrs)
-}
-
 var createComment = function (commenterId, text, post) {
   text = RichText.sanitize(text)
   var attrs = {
-    comment_text: text,
+    text: text,
     created_at: new Date(),
     post_id: post.id,
     user_id: commenterId,
@@ -24,16 +15,19 @@ var createComment = function (commenterId, text, post) {
   .tap(comment => Queue.classMethod('Comment', 'sendNotifications', {commentId: comment.id}))
 }
 
+var userColumns = q => q.column('id', 'name', 'avatar_url')
+
 module.exports = {
   findForPost: function (req, res) {
     Comment.query(function (qb) {
       qb.where({post_id: res.locals.post.id, active: true})
       qb.orderBy('id', 'asc')
     }).fetchAll({withRelated: [
-      {user: q => q.column('id', 'name', 'avatar_url')},
-      {thanks: q => q.where('thanked_by_id', req.session.userId)}
+      {user: userColumns},
+      'thanks',
+      {'thanks.thankedBy': userColumns}
     ]})
-    .then(cs => cs.map(commentAttributes))
+    .then(cs => cs.map(c => CommentPresenter.present(c, req.session.userId)))
     .then(res.ok, res.serverError)
   },
 
@@ -44,14 +38,14 @@ module.exports = {
         {user: q => q.column('id', 'name', 'avatar_url')}
       ])
     })
-    .then(commentAttributes)
+    .then(c => CommentPresenter.present(c, req.session.userId))
     .then(res.ok, res.serverError)
   },
 
   createFromEmail: function (req, res) {
     try {
       var replyData = Email.decodePostReplyAddress(req.param('To'))
-    } catch(e) {
+    } catch (e) {
       return res.serverError(new Error('Invalid reply address: ' + req.param('To')))
     }
 

@@ -47,6 +47,8 @@ REDIS_URL=redis://localhost:6379
 ROLLBAR_SERVER_TOKEN=foo
 SEGMENT_KEY=foo
 SENDWITHUS_KEY=foo
+SLACK_APP_CLIENT_ID=xxxxxxx
+SLACK_APP_CLIENT_SECRET=xxxxxxxx
 ```
 * `ADMIN_GOOGLE_CLIENT_*`: To access the admin console.  Get these values from the [hylo-admin Google project](https://console.developers.google.com/project/hylo-admin).
 * `ASSET_HOST_URL`: The host for static assets. In development, this is the [hylo-frontend](https://github.com/Hylozoic/hylo-frontend) server, which listens at `localhost:1337` by default.
@@ -55,6 +57,8 @@ SENDWITHUS_KEY=foo
 * `PLAY_APP_SECRET`: set to a string over length 16 to avoid the code erroring. real value only needed for running in production environment
 * `ROLLBAR_SERVER_TOKEN`: use the `post_server_item` token in  [Rollbar](https://rollbar.com/hylo_dev/Hylo/settings/access_tokens/)
 * `SENDWITHUS_KEY`: set up a test key in SendWithUs to send all email only to you (ask someone with admin rights to set this up)
+* `SLACK_APP_CLIENT_ID`: set up an app on Slack and reference its' client id, optional for dev installation
+* `SLACK_APP_CLIENT_SECRET`: reference the client secret from that same app on Slack, optional for dev installation
 
 ### running the dev server
 
@@ -103,29 +107,48 @@ cat $DUMP_FILENAME | psql -h localhost $LOCAL_DB_NAME
 
 * GET methods on `FooController` should return instances of `Foo`. (See policies.js for some related FIXME's)
 
-### (un)license
+### style guidelines
 
-This is free and unencumbered software released into the public domain.
+We're gradually migrating to [Javascript Standard Style](https://github.com/feross/standard).
 
-Anyone is free to copy, modify, publish, use, compile, sell, or
-distribute this software, either in source code form or as a compiled
-binary, for any purpose, commercial or non-commercial, and by any
-means.
+The [standard-formatter Atom package](https://atom.io/packages/standard-formatter) helps out a lot. We deviate from its default behavior only in not indenting a multi-line method chain:
 
-In jurisdictions that recognize copyright laws, the author or authors
-of this software dedicate any and all copyright interest in the
-software to the public domain. We make this dedication for the benefit
-of the public at large and to the detriment of our heirs and
-successors. We intend this dedication to be an overt act of
-relinquishment in perpetuity of all present and future rights to this
-software under copyright law.
+```javascript
+# yes
+return Do(() => {
+  amaze()
+  very()
+})
+.then(such)
+.tap(wow)
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR
-OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
-ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
-OTHER DEALINGS IN THE SOFTWARE.
+# no
+return Do(() => {
+  amaze()
+  very()
+})
+  .then(such)
+  .tap(wow)
+```
 
-For more information, please refer to http://unlicense.org/
+The [linter-js-standard](https://atom.io/packages/linter-js-standard) package is also very helpful.
+
+## License
+
+    Hylo is a mobile and web application to help people do more together. 
+    Hylo helps communities better understand who in their community has what skills, 
+    and how they can create things together.
+    Copyright (C) 2016, Hylozoic, Inc.
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU Affero General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU Affero General Public License for more details.
+
+    You should have received a copy of the GNU Affero General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.

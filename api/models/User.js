@@ -13,7 +13,8 @@ module.exports = bookshelf.Model.extend({
   },
 
   communities: function () {
-    return this.belongsToMany(Community, 'users_community')
+    return this.belongsToMany(Community, 'users_community').through(Membership)
+      .query({where: {'users_community.active': true, 'community.active': true}}).withPivot('role')
   },
 
   contributions: function () {
@@ -37,7 +38,13 @@ module.exports = bookshelf.Model.extend({
   },
 
   memberships: function () {
-    return this.hasMany(Membership)
+    return this.hasMany(Membership).query(qb => {
+      qb.where('users_community.active', true)
+      qb.leftJoin('community', function () {
+        this.on('community.id', '=', 'users_community.community_id')
+      })
+      qb.where('community.active', true)
+    })
   },
 
   onboarding: function () {
@@ -183,19 +190,19 @@ module.exports = bookshelf.Model.extend({
       active: true
     }, _.omit(attributes, 'account', 'community'))
 
-    if (account && account.type === 'facebook') {
-      _.merge(attributes, {
-        facebook_url: account.profile.profileUrl,
-        avatar_url: format('http://graph.facebook.com/%s/picture?type=large', account.profile.id)
-      })
-    } else if (account && account.type === 'linkedin') {
-      _.merge(attributes, {
-        linkedin_url: account.profile._json.publicProfileUrl,
-        avatar_url: account.profile.photos[0]
-      })
+    if (account) {
+      _.merge(
+        attributes,
+        LinkedAccount.socialMediaAttributes(account.type, account.profile)
+      )
     }
 
-    return new User(attributes).save({}, {transacting: trx}).tap(user => Promise.join(
+    if (!attributes.name) {
+      attributes.name = attributes.email.split('@')[0].replace(/[\._]/g, ' ')
+    }
+
+    return new User(attributes).save({}, {transacting: trx})
+    .tap(user => Promise.join(
       account && LinkedAccount.create(user.id, account, {transacting: trx}),
       community && Membership.create(user.id, community.id, {transacting: trx})
     ))
@@ -214,6 +221,7 @@ module.exports = bookshelf.Model.extend({
       })),
 
   find: function (id, options) {
+    if (!id) return Promise.resolve(null)
     if (isNaN(Number(id))) {
       return User.query(q => q.where({email: id}).orWhere({name: id})).fetch(options)
     }
@@ -254,7 +262,7 @@ module.exports = bookshelf.Model.extend({
 
   gravatar: function (email) {
     var emailHash = crypto.createHash('md5').update(email).digest('hex')
-    return format('http://www.gravatar.com/avatar/%s?d=mm&s=140', emailHash)
+    return format('https://www.gravatar.com/avatar/%s?d=mm&s=140', emailHash)
   },
 
   encryptEmail: function (email) {

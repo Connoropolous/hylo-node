@@ -39,17 +39,18 @@ var jobs = {
         tasks.push(Digest.sendDaily())
         break
       default:
-        tasks.push(Relevance.cron(1, 'hour'))
+        if (process.env.SERENDIPITY_ENABLED) {
+          tasks.push(Relevance.cron(1, 'hour'))
+        }
     }
 
     return Promise.all(tasks)
   },
 
   every10minutes: function () {
-    sails.log.debug('noop!')
-    return Promise.resolve(null)
+    sails.log.debug('Refreshing full-text search index')
+    return FullTextSearch.refreshView()
   }
-
 }
 
 var runJob = Promise.method(function (name) {
@@ -64,13 +65,12 @@ var runJob = Promise.method(function (name) {
 skiff.lift({
   start: function (argv) {
     runJob(argv.interval)
-      .then(function () {
-        skiff.lower()
-      })
-      .catch(function (err) {
-        sails.log.error(err.message.red)
-        rollbar.handleError(err)
-        skiff.lower()
-      })
+    .then(function () {
+      skiff.lower()
+    })
+    .catch(function (err) {
+      sails.log.error(err.message.red)
+      rollbar.handleError(err, () => skiff.lower())
+    })
   }
 })

@@ -32,9 +32,12 @@ module.exports.session = {
   *                                                                          *
   ***************************************************************************/
 
-  // cookie: {
-  //   maxAge: 24 * 60 * 60 * 1000
-  // }
+  key: 'hylo.sid.1', // cookie name, instead of sails.sid
+
+  cookie: {
+    domain: process.env.COOKIE_DOMAIN
+    // maxAge: 24 * 60 * 60 * 1000
+  },
 
   /***************************************************************************
   *                                                                          *

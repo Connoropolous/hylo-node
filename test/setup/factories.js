@@ -16,14 +16,30 @@ module.exports = {
 
   post: attrs => {
     return new Post(_.merge({
+      active: true,
       name: text()
+    }, attrs))
+  },
+
+  project: attrs => {
+    return new Project(_.merge({
+      title: text(),
+      slug: text()
     }, attrs))
   },
 
   user: attrs => {
     return new User(_.merge({
       name: text(),
+      active: true,
       email: format('%s@example.com', text())
+    }, attrs))
+  },
+
+  network: attrs => {
+    return new Network(_.merge({
+      name: text(),
+      slug: text()
     }, attrs))
   },
 
@@ -56,6 +72,10 @@ module.exports = {
         status: chai.spy(function () { return this }),
         send: chai.spy(function (data) { self.body = data }),
         redirect: chai.spy(function (url) { self.redirected = url }),
+        view: chai.spy(function (template, attrs) {
+          this.viewTemplate = template
+          this.viewAttrs = attrs
+        }),
         locals: {}
       }
       return self

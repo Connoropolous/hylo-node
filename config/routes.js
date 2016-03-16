@@ -1,48 +1,10 @@
+/* eslint key-spacing:0 */
+
 /**
- * Route Mappings
- * (sails.config.routes)
- *
- * Your routes map URLs to views and controllers.
- *
- * If Sails receives a URL that doesn't match any of the routes below,
- * it will check for matching files (images, scripts, stylesheets, etc.)
- * in your assets directory.  e.g. `http://localhost:1337/images/foo.jpg`
- * might match an image file: `/assets/images/foo.jpg`
- *
- * Finally, if those don't match either, the default 404 handler is triggered.
- * See `api/responses/notFound.js` to adjust your app's 404 logic.
- *
- * Note: Sails doesn't ACTUALLY serve stuff from `assets`-- the default Gruntfile in Sails copies
- * flat files from `assets` to `.tmp/public`.  This allows you to do things like compile LESS or
- * CoffeeScript for the front-end.
- *
- * For more information on configuring custom routes, check out:
  * http://sailsjs.org/#/documentation/concepts/Routes/RouteTargetSyntax.html
  */
 
 module.exports.routes = {
-
-  /***************************************************************************
-  *                                                                          *
-  * Make the view located at `views/homepage.ejs` (or `views/homepage.jade`, *
-  * etc. depending on your default view engine) your home page.              *
-  *                                                                          *
-  * (Alternatively, remove this and add an `index.html` file in your         *
-  * `assets` directory)                                                      *
-  *                                                                          *
-  ***************************************************************************/
-
-
-  /***************************************************************************
-  *                                                                          *
-  * Custom routes here...                                                    *
-  *                                                                          *
-  *  If a request to a URL doesn't match any of the custom routes above, it  *
-  * is matched against Sails route blueprints. See `config/blueprints.js`    *
-  * for configuration options and examples.                                  *
-  *                                                                          *
-  ***************************************************************************/
-
   'GET    /noo/user/status':                              'UserController.status',
   'GET    /noo/user/me':                                  'UserController.findSelf',
   'POST   /noo/user/password':                            'UserController.sendPasswordReset',
@@ -52,8 +14,8 @@ module.exports.routes = {
   'GET    /noo/user/:userId/contributions':               'UserController.contributions',
   'GET    /noo/user/:userId/thanks':                      'UserController.thanks',
   'GET    /noo/user/:userId/posts':                       'PostController.findForUser',
-  'GET    /noo/user/:userId/followed-posts':              'PostController.findFollowed',
-  'GET    /noo/user/:userId/all-community-posts':         'PostController.findAllForUser',
+  'GET    /noo/user/:userId/followed-posts':              'PostController.findForFollowed',
+  'GET    /noo/user/:userId/all-community-posts':         'PostController.findForAllForUser',
   'GET    /noo/user/:userId/onboarding':                  'OnboardingController.find',
   'POST   /noo/user/:userId/onboarding':                  'OnboardingController.update',
   'GET    /noo/user/:userId/projects':                    'ProjectController.findForUser',
@@ -65,7 +27,7 @@ module.exports.routes = {
   'GET    /noo/community/:communityId':                   'CommunityController.findOne',
   'POST   /noo/community/:communityId':                   'CommunityController.update',
   'GET    /noo/community/:communityId/settings':          'CommunityController.findSettings',
-  'POST   /noo/community/:communityId/invite':            'CommunityController.invite',
+  'GET    /noo/community/:communityId/settings/slack':    'CommunityController.addSlack',
   'GET    /noo/community/:communityId/moderators':        'CommunityController.findModerators',
   'POST   /noo/community/:communityId/moderators':        'CommunityController.addModerator',
   'DELETE /noo/community/:communityId/moderator/:userId': 'CommunityController.removeModerator',
@@ -73,6 +35,8 @@ module.exports.routes = {
   'DELETE /noo/community/:communityId/member/:userId':    'CommunityController.removeMember',
   'GET    /noo/community/:communityId/posts':             'PostController.findForCommunity',
   'GET    /noo/community/:communityId/projects':          'ProjectController.findForCommunity',
+  'GET    /noo/community/:communityId/invitations':       'InvitationController.find',
+  'POST   /noo/community/:communityId/invite':            'InvitationController.create',
 
   'GET    /noo/post/:postId':                             'PostController.findOne',
   'POST   /noo/post/:postId/comment':                     'CommentController.create',
@@ -80,11 +44,20 @@ module.exports.routes = {
   'POST   /noo/post/:postId/follow':                      'PostController.follow',
   'POST   /noo/post/:postId/fulfill':                     'PostController.fulfill',
   'POST   /noo/post/:postId/vote':                        'PostController.vote',
+  'GET    /noo/post/:postId/voters':                      'UserController.findForPostVote',
   'POST   /noo/post/:postId/complain':                    'PostController.complain',
   'POST   /noo/post/:postId/respond':                     'PostController.respond',
   'POST   /noo/post':                                     'PostController.create',
   'POST   /noo/post/:postId':                             'PostController.update',
   'DELETE /noo/post/:postId':                             'PostController.destroy',
+  // these route names correspond with the different cases for subject in the
+  // frontend fetchPosts action
+  'POST   /noo/freshness/posts/community/:communityId':   'PostController.checkFreshnessForCommunity',
+  'POST   /noo/freshness/posts/person/:userId':           'PostController.checkFreshnessForUser',
+  'POST   /noo/freshness/posts/all-posts/:userId':        'PostController.checkFreshnessForAllForUser',
+  'POST   /noo/freshness/posts/followed-posts/:userId':   'PostController.checkFreshnessForFollowed',
+  'POST   /noo/freshness/posts/project/:projectId':       'PostController.checkFreshnessForProject',
+  'POST   /noo/freshness/posts/network/:networkId':       'PostController.checkFreshnessForNetwork',
 
   'POST   /noo/comment/:commentId/thank':                 'CommentController.thank',
   'DELETE /noo/comment/:commentId':                       'CommentController.destroy',
@@ -102,6 +75,7 @@ module.exports.routes = {
   'DELETE /noo/project/:projectId/user/:userId':          'ProjectController.removeUser',
   'POST   /noo/project/:projectId/user/:userId':          'ProjectController.updateMembership',
   'POST   /noo/project/:projectId/moderator/:userId':     'ProjectController.toggleModeratorRole',
+  'GET    /noo/project':                                  'ProjectController.find',
   'POST   /noo/project':                                  'ProjectController.create',
   'POST   /noo/project/:projectId':                       'ProjectController.update',
   'POST   /noo/project/:projectId/invite':                'ProjectController.invite',
@@ -111,10 +85,15 @@ module.exports.routes = {
   'GET    /noo/network/:networkId/posts':                 'PostController.findForNetwork',
   'GET    /noo/network/:networkId/communities':           'CommunityController.findForNetwork',
   'GET    /noo/network/:networkId/members':               'UserController.findForNetwork',
+  'POST   /noo/network':                                  'NetworkController.create',
+  'POST   /noo/network/validate':                         'NetworkController.validate',
+  'POST   /noo/network/:networkId':                       'NetworkController.update',
 
   'GET    /noo/search':                                   'SearchController.show',
+  'GET    /noo/search/fulltext':                          'SearchController.showFullText',
   'GET    /noo/autocomplete':                             'SearchController.autocomplete',
 
+  'GET    /noo/invitation/:token':                        'InvitationController.findOne',
   'POST   /noo/invitation/:token':                        'InvitationController.use',
 
   'POST   /noo/waitlist':                                 'MessageController.createWaitlistRequest',
@@ -158,6 +137,9 @@ module.exports.routes = {
 
   'POST    /noo/subscription':                            'SubscriptionController.create',
 
-  '/*':                                                   'StaticPageController.proxy'
+  'GET     /noo/mobile/auto-update-info':                 'MobileAppController.updateInfo',
 
-};
+  'GET     /noo/live-status':                             'LiveStatusController.show',
+
+  '/*':                                                   'StaticPageController.proxy'
+}

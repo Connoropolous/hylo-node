@@ -1,3 +1,5 @@
+/* eslint key-spacing:0 */
+
 /**
  * Policy Mappings
  * (sails.config.policies)
@@ -16,14 +18,19 @@
  * http://sailsjs.org/#/documentation/reference/sails.config/sails.config.policies.html
  */
 
-
 module.exports.policies = {
 
   '*': false,
 
   SessionController: true,
-  InvitationController: true,
   LinkedinController: ['sessionAuth'],
+
+  InvitationController: {
+    use: true,
+    findOne: true,
+    find: ['sessionAuth', 'canInvite'],
+    create: ['sessionAuth', 'canInvite']
+  },
 
   AdminSessionController: {
     create:  true,
@@ -37,21 +44,24 @@ module.exports.policies = {
 
   SearchController: {
     show: ['allowPublicAccess', 'sessionAuth', 'checkAndSetMembership'],
-    autocomplete: ['sessionAuth', 'checkAndSetMembership']
+    autocomplete: ['sessionAuth', 'checkAndSetMembership'],
+    showFullText: ['sessionAuth']
   },
 
   UserController: {
-    status:            true,
-    create:            true,
-    findSelf:          ['allowPublicAccess', 'sessionAuth'],
-    findOne:           ['sessionAuth', 'inSameCommunityOrNetwork'],
-    update:            ['sessionAuth', 'isSelf'],
-    contributions:     ['sessionAuth', 'inSameCommunityOrNetwork'],
-    thanks:            ['sessionAuth', 'inSameCommunityOrNetwork'],
-    sendPasswordReset: true,
-    findForProject:    ['allowPublicAccess', 'sessionAuth', 'checkAndSetProject'],
-    findForCommunity:  ['allowTokenAuth', 'sessionAuth', 'checkAndSetMembership'],
-    findForNetwork:    ['sessionAuth', 'inNetwork']
+    status:              true,
+    create:              true,
+    findSelf:            ['allowPublicAccess', 'sessionAuth'],
+    findOne:             ['sessionAuth', 'inSameCommunityOrNetwork'],
+    update:              ['sessionAuth', 'isSelf'],
+    contributions:       ['sessionAuth', 'inSameCommunityOrNetwork'],
+    thanks:              ['sessionAuth', 'inSameCommunityOrNetwork'],
+    sendPasswordReset:   true,
+    findForProject:      ['allowPublicAccess', 'sessionAuth', 'checkAndSetProject'],
+    findForProjectRedux: ['allowPublicAccess', 'sessionAuth', 'checkAndSetProject'],
+    findForCommunity:    ['allowTokenAuth', 'sessionAuth', 'checkAndSetMembership'],
+    findForNetwork:      ['sessionAuth', 'inNetwork'],
+    findForPostVote:     ['allowPublicAccess', 'sessionAuth', 'checkAndSetPost']
   },
 
   ActivityController: {
@@ -70,7 +80,7 @@ module.exports.policies = {
     findOne:         ['allowPublicAccess', 'allowTokenAuth', 'sessionAuth', 'checkAndSetMembership'],
     findSettings:    ['sessionAuth', 'canInvite'],
     update:          ['sessionAuth', 'isModerator'],
-    invite:          ['sessionAuth', 'canInvite'],
+    addSlack:        ['sessionAuth', 'isModerator'],
     findModerators:  ['sessionAuth', 'isModerator'], // FIXME move to UserController
     addModerator:    ['sessionAuth', 'isModerator'],
     removeModerator: ['sessionAuth', 'isModerator'],
@@ -83,23 +93,28 @@ module.exports.policies = {
   },
 
   PostController: {
-    findOne:          ['allowPublicAccess', 'sessionAuth', 'checkAndSetPost'],
-    findForCommunity: ['allowPublicAccess', 'allowTokenAuth', 'sessionAuth', 'checkAndSetMembership'],
-    findForProject:   ['allowPublicAccess', 'sessionAuth', 'checkAndSetProject'],
-    findForUser:      ['sessionAuth', 'inSameCommunityOrNetwork'],
-    findForNetwork:   ['sessionAuth', 'inNetwork'],
-    create:           ['sessionAuth', 'inCommunities'],
-    createForProject: ['sessionAuth', 'checkAndSetProject', 'canCreateProjectPost'],
-    update:           ['sessionAuth', 'checkAndSetWritablePost'],
-    follow:           ['sessionAuth', 'checkAndSetPost'],
-    respond:          ['sessionAuth', 'checkAndSetPost'],
-    findFollowed:     ['sessionAuth', 'isSelf'],
-    findAllForUser:   ['sessionAuth', 'isSelf'],
-    fulfill:          ['sessionAuth', 'checkAndSetOwnPost'],
-    vote:             ['sessionAuth', 'checkAndSetPost'],
-    complain:         ['sessionAuth', 'checkAndSetPost'],
-    destroy:          ['sessionAuth', 'checkAndSetWritablePost'],
-    createFromEmail: true,
+    findOne:                     ['allowPublicAccess', 'sessionAuth', 'checkAndSetPost'],
+    findForCommunity:            ['allowPublicAccess', 'allowTokenAuth', 'sessionAuth', 'checkAndSetMembership'],
+    checkFreshnessForCommunity:  ['allowPublicAccess', 'allowTokenAuth', 'sessionAuth', 'checkAndSetMembership'],
+    findForProject:              ['allowPublicAccess', 'sessionAuth', 'checkAndSetProject'],
+    checkFreshnessForProject:    ['allowPublicAccess', 'sessionAuth', 'checkAndSetProject'],
+    findForUser:                 ['sessionAuth', 'inSameCommunityOrNetwork'],
+    checkFreshnessForUser:       ['sessionAuth', 'inSameCommunityOrNetwork'],
+    findForNetwork:              ['sessionAuth', 'inNetwork'],
+    checkFreshnessForNetwork:    ['sessionAuth', 'inNetwork'],
+    create:                      ['sessionAuth', 'inCommunitiesOrProject'],
+    update:                      ['sessionAuth', 'checkAndSetWritablePost'],
+    follow:                      ['sessionAuth', 'checkAndSetPost'],
+    respond:                     ['sessionAuth', 'checkAndSetPost'],
+    findForFollowed:             ['sessionAuth', 'isSelf'],
+    checkFreshnessForFollowed:   ['sessionAuth', 'isSelf'],
+    findForAllForUser:           ['sessionAuth', 'isSelf'],
+    checkFreshnessForAllForUser: ['sessionAuth', 'isSelf'],
+    fulfill:                     ['sessionAuth', 'checkAndSetOwnPost'],
+    vote:                        ['sessionAuth', 'checkAndSetPost'],
+    complain:                    ['sessionAuth', 'checkAndSetPost'],
+    destroy:                     ['sessionAuth', 'checkAndSetWritablePost'],
+    createFromEmail: true
   },
 
   CommentController: {
@@ -107,7 +122,7 @@ module.exports.policies = {
     thank:           ['sessionAuth'],
     findForPost:     ['allowPublicAccess', 'sessionAuth', 'checkAndSetPost'],
     destroy:         ['sessionAuth', 'isCommentOwner'],
-    createFromEmail: true,
+    createFromEmail: true
   },
 
   MessageController: {
@@ -117,6 +132,7 @@ module.exports.policies = {
 
   ProjectController: {
     create:              ['sessionAuth'],
+    find:                ['allowPublicAccess', 'sessionAuth'],
     update:              ['sessionAuth', 'checkAndSetWritableProject'],
     findOne:             ['allowPublicAccess', 'sessionAuth', 'checkAndSetProject'],
     invite:              ['sessionAuth', 'checkAndSetWritableProject'],
@@ -135,7 +151,10 @@ module.exports.policies = {
   },
 
   NetworkController: {
-    findOne: ['sessionAuth', 'inNetwork']
+    findOne: ['sessionAuth', 'inNetwork'],
+    create:  ['sessionAuth'],
+    update:  ['sessionAuth', 'inNetwork'],
+    validate:        true
   },
 
   SubscriptionController: {
@@ -146,6 +165,10 @@ module.exports.policies = {
     proxy: ['renderOpenGraphTags']
   },
 
-  NexudusController: true
+  NexudusController: true,
 
-};
+  MobileAppController: true,
+
+  LiveStatusController: true
+
+}

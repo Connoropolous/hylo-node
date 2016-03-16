@@ -41,19 +41,27 @@ module.exports = {
     var params = _.pick(req.allParams(), 'name', 'email', 'password')
 
     return findContext(req)
-      .then(ctx => {
-        var attrs = _.merge(_.pick(params, 'name', 'email'), {
-          community: (ctx.invitation ? null : ctx.community),
-          account: {type: 'password', password: params.password}
-        })
+    .then(ctx => {
+      var attrs = _.merge(_.pick(params, 'name', 'email'), {
+        community: (ctx.invitation ? null : ctx.community),
+        account: {type: 'password', password: params.password}
+      })
 
-        return User.createFully(attrs, ctx.invitation)
-      })
-      .then(user => req.param('login') && UserSession.login(req, user, 'password'))
-      .then(() => res.ok({}))
-      .catch(function (err) {
-        res.status(422).send(err.detail ? err.detail : err)
-      })
+      return User.createFully(attrs, ctx.invitation)
+    })
+    .tap(user => req.param('login') && UserSession.login(req, user, 'password'))
+    .then(user => {
+      if (req.param('resp') === 'user') {
+        return UserPresenter.fetchForSelf(user.id, Admin.isSignedIn(req))
+        .then(attributes => UserPresenter.presentForSelf(attributes, req.session))
+        .then(res.ok)
+      } else {
+        return res.ok({})
+      }
+    })
+    .catch(function (err) {
+      res.status(422).send(err.detail ? err.detail : err)
+    })
   },
 
   status: function (req, res) {
@@ -82,10 +90,11 @@ module.exports = {
     .then(q => q.fetchAll({
       withRelated: [
         {post: q => q.column('id', 'name', 'user_id', 'type')},
-        {'post.creator': q => q.column('id', 'name', 'avatar_url')},
+        {'post.user': q => q.column('id', 'name', 'avatar_url')},
         {'post.communities': q => q.column('community.id', 'name')}
       ]
-    })).then(res.ok, res.serverError)
+    }))
+    .then(res.ok, res.serverError)
   },
 
   thanks: function (req, res) {
@@ -93,12 +102,13 @@ module.exports = {
     .then(q => q.fetchAll({
       withRelated: [
         {thankedBy: q => q.column('id', 'name', 'avatar_url')},
-        {comment: q => q.column('id', 'comment_text', 'post_id')},
-        {'comment.post.creator': q => q.column('id', 'name', 'avatar_url')},
+        {comment: q => q.column('id', 'text', 'post_id')},
+        {'comment.post.user': q => q.column('id', 'name', 'avatar_url')},
         {'comment.post': q => q.column('post.id', 'name', 'user_id', 'type')},
         {'comment.post.communities': q => q.column('community.id', 'name')}
       ]
-    })).then(res.ok, res.serverError)
+    }))
+    .then(res.ok, res.serverError)
   },
 
   update: function (req, res) {
@@ -167,10 +177,9 @@ module.exports = {
 
       return Promise.all(promises)
     })
-    .then(function () {
-      res.ok({})
-    }).catch(function (err) {
-      if (_.contains(['invalid-email', 'duplicate-email'], err.message)) {
+    .then(() => res.ok({}))
+    .catch(function (err) {
+      if (_.includes(['invalid-email', 'duplicate-email'], err.message)) {
         res.statusCode = 422
         res.send(req.__(err.message))
       } else {
@@ -200,16 +209,26 @@ module.exports = {
   },
 
   findForProject: function (req, res) {
+    var total
+
     res.locals.project.contributors()
-    .query({
-      limit: req.param('limit') || 10,
-      offset: req.param('offset') || 0
-    }).fetch()
-    .then(users => users.map(u => _.extend(u.pick(UserPresenter.shortAttributes), {
-      membership: u.pivot.pick('role')
-    })))
-    .then(res.ok)
-    .catch(res.serverError)
+    .query(qb => {
+      qb.limit(req.param('limit') || 10)
+      qb.offset(req.param('offset') || 0)
+      qb.orderBy('projects_users.created_at', 'desc')
+      qb.select(bookshelf.knex.raw('users.*, count(*) over () as total'))
+    })
+    .fetch({withRelated: ['skills', 'organizations']})
+    .tap(users => total = (users.length > 0 ? users.first().get('total') : 0))
+    .then(users => users.map(u => _.extend(UserPresenter.presentForList(u), {membership: u.pivot.pick('role')})))
+    .then(users => {
+      if (req.param('paginate')) {
+        return {people_total: total, people: users}
+      } else {
+        return users
+      }
+    })
+    .then(res.ok, res.serverError)
   },
 
   findForCommunity: function (req, res) {
@@ -218,13 +237,17 @@ module.exports = {
 
     var options = _.defaults(
       _.pick(req.allParams(), 'limit', 'offset', 'start_time', 'end_time'),
-      {limit: 20, communities: [req.param('communityId')]}
+      {
+        limit: 20,
+        communities: [res.locals.community.id],
+        term: req.param('search')
+      }
     )
     var total
 
-    Search.forUsers(options).fetchAll({withRelated: ['skills', 'organizations']})
+    Search.forUsers(options).fetchAll({withRelated: ['skills', 'organizations', 'memberships']})
     .tap(users => total = (users.length > 0 ? users.first().get('total') : 0))
-    .then(users => users.map(UserPresenter.presentForList))
+    .then(users => users.map(u => UserPresenter.presentForList(u, res.locals.community.id)))
     .then(list => ({people_total: total, people: list}))
     .then(res.ok, res.serverError)
   },
@@ -232,8 +255,9 @@ module.exports = {
   findForNetwork: function (req, res) {
     var total
 
-    Community.query().where('network_id', req.param('networkId')).select('id')
-    .then(rows => _.pluck(rows, 'id'))
+    Network.find(req.param('networkId'))
+    .then(network => Community.query().where('network_id', network.id).select('id'))
+    .then(rows => _.map(rows, 'id'))
     .then(ids => Search.forUsers({
       communities: ids,
       limit: req.param('limit') || 20,
@@ -243,6 +267,17 @@ module.exports = {
     .then(users => users.map(UserPresenter.presentForList))
     .then(list => ({people_total: total, people: list}))
     .then(res.ok, res.serverError)
-  }
+  },
 
+  findForPostVote: function (req, res) {
+    User.query(q => {
+      q.where('id', 'in', Vote.query()
+        .where({post_id: req.param('postId')})
+        .select('user_id'))
+    })
+    .fetchAll()
+    .then(people => people.map(u => u.pick('id', 'name', 'avatar_url')))
+    .then(people => ({people, people_total: people.length}))
+    .then(res.ok, res.serverError)
+  }
 }

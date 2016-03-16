@@ -1,3 +1,5 @@
+var Slack = require('../services/Slack')
+
 module.exports = bookshelf.Model.extend({
   tableName: 'community',
 
@@ -32,8 +34,8 @@ module.exports = bookshelf.Model.extend({
   },
 
   users: function () {
-    return this.belongsToMany(User, 'users_community', 'community_id', 'user_id')
-      .query({where: {'users_community.active': true}}).withPivot('role')
+    return this.belongsToMany(User).through(Membership)
+      .query({where: {'users_community.active': true, 'users.active': true}}).withPivot('role')
   },
 
   posts: function () {
@@ -52,7 +54,9 @@ module.exports = bookshelf.Model.extend({
       qb.where({
         'post_community.community_id': communityId,
         'comment.active': true
-      }).leftJoin('post_community', () => this.on('post_community.post_id', 'comment.post_id'))
+      }).leftJoin('post_community', function () {
+        this.on('post_community.post_id', 'comment.post_id')
+      })
     })
   },
 
@@ -92,6 +96,13 @@ module.exports = bookshelf.Model.extend({
     return Community.where({id: id_or_slug}).fetch(options)
   },
 
+  findActive: function (id_or_slug, options) {
+    if (isNaN(Number(id_or_slug))) {
+      return Community.where({slug: id_or_slug, active: true}).fetch(options)
+    }
+    return Community.where({id: id_or_slug, active: true}).fetch(options)
+  },
+
   canInvite: function (userId, communityId) {
     return Community.find(communityId).then(function (community) {
       if (community.get('settings').all_can_invite) return true
@@ -121,7 +132,7 @@ module.exports = bookshelf.Model.extend({
       }, {
         sender: {
           name: 'Hylobot',
-          address: 'edward@hylo.com'
+          address: 'dev+bot@hylo.com'
         }
       })
     })
@@ -131,6 +142,14 @@ module.exports = bookshelf.Model.extend({
     return Community.find(communityId)
     .then(community => community && community.get('network_id'))
     .then(networkId => networkId && Network.containsUser(networkId, userId))
-  }
+  },
 
+  sendSlackNotification: function (communityId, post) {
+    return Community.find(communityId)
+    .then(community => {
+      if (!community || !community.get('slack_hook_url')) return
+      var slackMessage = Slack.textForNewPost(post, community)
+      return Slack.send(slackMessage, community.get('slack_hook_url'))
+    })
+  }
 })

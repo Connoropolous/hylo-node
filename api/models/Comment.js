@@ -12,7 +12,7 @@ module.exports = bookshelf.Model.extend({
   },
 
   text: function () {
-    return this.get('comment_text')
+    return this.get('text')
   },
 
   mentions: function () {
@@ -49,14 +49,14 @@ module.exports = bookshelf.Model.extend({
     var comment, post
     return bookshelf.transaction(trx => {
       return Comment.find(opts.commentId, {
-        withRelated: ['user', 'post', 'post.communities', 'post.creator', 'post.followers', 'post.relatedUsers'],
+        withRelated: ['user', 'post', 'post.communities', 'post.user', 'post.followers', 'post.relatedUsers'],
         transacting: trx
       }).then(c => {
         comment = c
         post = c.relations.post
         return [
           post.relations.followers.pluck('id'),
-          RichText.getUserMentions(comment.get('comment_text'))
+          RichText.getUserMentions(comment.get('text'))
         ]
       })
       .spread((existing, mentioned) => {
@@ -116,7 +116,7 @@ module.exports = bookshelf.Model.extend({
       User.find(opts.recipientId),
       Comment.find(opts.commentId, {
         withRelated: [
-          'user', 'post', 'post.communities', 'post.creator', 'post.relatedUsers'
+          'user', 'post', 'post.communities', 'post.user', 'post.relatedUsers'
         ]
       })
     )
@@ -126,9 +126,9 @@ module.exports = bookshelf.Model.extend({
 
       var post = comment.relations.post
       var commenter = comment.relations.user
-      var creator = post.relations.creator
+      var poster = post.relations.user
       var community = post.relations.communities.models[0]
-      var text = RichText.qualifyLinks(comment.get('comment_text'))
+      var text = RichText.qualifyLinks(comment.get('text'))
       var replyTo = Email.postReplyAddress(post.id, recipient.id)
 
       var postLabel
@@ -142,7 +142,7 @@ module.exports = bookshelf.Model.extend({
         }
       } else {
         postLabel = format('%s %s: "%s"',
-          (recipient.id === creator.id ? 'your' : 'the'), post.get('type'), post.get('name'))
+          (recipient.id === poster.id ? 'your' : 'the'), post.get('type'), post.get('name'))
       }
 
       return recipient.generateToken()
@@ -163,8 +163,8 @@ module.exports = bookshelf.Model.extend({
           comment_text: text,
           post_label: postLabel,
           post_title: post.get('name'),
-          post_url: Frontend.Route.tokenLogin(recipient, token,
-            Frontend.Route.post(post, community) + '?ctt=comment_email'),
+          comment_url: Frontend.Route.tokenLogin(recipient, token,
+            Frontend.Route.post(post) + '?ctt=comment_email' + `#comment-${comment.id}`),
           unfollow_url: Frontend.Route.tokenLogin(recipient, token,
             Frontend.Route.unfollow(post, community)),
           tracking_pixel_url: Analytics.pixelUrl('Comment', {userId: recipient.id})
@@ -181,13 +181,12 @@ module.exports = bookshelf.Model.extend({
 
       return Comment.find(opts.commentId, {
         withRelated: [
-          'user', 'post', 'post.communities', 'post.creator', 'post.relatedUsers'
+          'user', 'post', 'post.communities', 'post.user', 'post.relatedUsers'
         ]
       })
       .then(comment => {
         var post = comment.relations.post
-        var community = post.relations.communities.first()
-        var path = url.parse(Frontend.Route.post(post, community)).path
+        var path = url.parse(Frontend.Route.post(post)).path
         var alertText = PushNotification.textForComment(comment, opts.version, opts.recipientId)
 
         return Promise.map(devices.models, d => d.sendPushNotification(alertText, path))

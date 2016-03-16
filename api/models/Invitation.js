@@ -12,6 +12,10 @@ module.exports = bookshelf.Model.extend({
     return this.belongsTo(User, 'invited_by_id');
   },
 
+  user: function () {
+    return this.belongsTo(User, 'used_by_id')
+  },
+
   isUsed: function() {
     return !!this.get('used_by_id');
   },

@@ -1,8 +1,13 @@
-var validator = require('validator')
+var Promise = require('bluebird')
+var request = require('request')
+var post = Promise.promisify(request.post)
+var slackAuthAccess = 'https://slack.com/api/oauth.access'
 
 module.exports = {
   find: function (req, res) {
-    Community.fetchAll({withRelated: [
+    Community
+    .where('active', true)
+    .fetchAll({withRelated: [
         {memberships: q => q.column('community_id')}
     ]})
     .then(communities => communities.map(c => _.extend(c.toJSON(), {
@@ -31,7 +36,7 @@ module.exports = {
     Community.find(req.param('communityId'), {withRelated: ['leader']})
     .tap(community => leader = community.relations.leader)
     .then(community => _.merge(community.pick(
-      'welcome_message', 'beta_access_code', 'settings'
+      'welcome_message', 'beta_access_code', 'slack_hook_url', 'slack_team', 'slack_configure_url', 'settings'
     ), {
       leader: leader ? leader.pick('id', 'name', 'avatar_url') : null
     }))
@@ -42,8 +47,12 @@ module.exports = {
   update: function (req, res) {
     var whitelist = [
       'banner_url', 'avatar_url', 'name', 'description', 'settings',
-      'welcome_message', 'leader_id', 'beta_access_code', 'location'
+      'welcome_message', 'leader_id', 'beta_access_code', 'location',
+      'slack_hook_url', 'slack_team', 'slack_configure_url', 'active'
     ]
+    if (Admin.isSignedIn(req)) {
+      whitelist.push('slug')
+    }
     var attributes = _.pick(req.allParams(), whitelist)
     var saneAttrs = _.clone(attributes)
     var community = new Community({id: req.param('communityId')})
@@ -57,37 +66,31 @@ module.exports = {
     .catch(res.serverError)
   },
 
-  invite: function (req, res) {
-    return Community.find(req.param('communityId'))
-    .then(function (community) {
-      var emails = (req.param('emails') || '').split(/,|\n/).map(function (email) {
-        var trimmed = email.trim()
-        var matchLongFormat = trimmed.match(/.*<(.*)>/)
+  addSlack: function (req, res) {
+    var code = req.query.code
+    var redirect_uri = process.env.PROTOCOL + '://' + process.env.DOMAIN + req.path
+    var options = {
+      uri: slackAuthAccess,
+      form: {
+        client_id: process.env.SLACK_APP_CLIENT_ID,
+        client_secret: process.env.SLACK_APP_CLIENT_SECRET,
+        code: code,
+        redirect_uri: redirect_uri
+      }
+    }
 
-        if (matchLongFormat) return matchLongFormat[1]
-        return trimmed
-      })
+    Community.find(req.param('communityId')).then(community => {
+      if (!community) return res.notFound()
 
-      return Promise.map(emails, function (email) {
-        if (!validator.isEmail(email)) {
-          return {email: email, error: 'not a valid email address'}
-        }
-
-        return Invitation.createAndSend({
-          email: email,
-          userId: req.session.userId,
-          communityId: community.id,
-          message: RichText.markdown(req.param('message')),
-          moderator: req.param('moderator'),
-          subject: req.param('subject')
-        }).then(function () {
-          return {email: email, error: null}
-        }).catch(function (err) {
-          return {email: email, error: err.message}
-        })
-      })
+      post(options).spread((resp, body) => JSON.parse(body))
+      .then(parsed => community.save({
+        slack_hook_url: parsed.incoming_webhook.url,
+        slack_team: parsed.team_name,
+        slack_configure_url: parsed.incoming_webhook.configuration_url
+      }, {patch: true}))
+      .then(() => res.redirect(Frontend.Route.community(community) + '/settings?slack=1'))
+      .catch(() => res.redirect(Frontend.Route.community(community) + '/settings?slack=0'))
     })
-    .then(results => res.ok({results: results}))
   },
 
   findModerators: function (req, res) {
@@ -118,14 +121,18 @@ module.exports = {
 
   joinWithCode: function (req, res) {
     var community
-    return Community.query('whereRaw', 'lower(beta_access_code) = lower(?)', req.param('code')).fetch()
+    return Community.query(qb => {
+      qb.whereRaw('lower(beta_access_code) = lower(?)', req.param('code'))
+      qb.where('active', true)
+    })
+    .fetch()
     .tap(c => community = c)
     .tap(() => bookshelf.transaction(trx => Promise.join(
       Membership.create(req.session.userId, community.id, {transacting: trx}),
       Post.createWelcomePost(req.session.userId, community.id, trx)
     )))
     .catch(err => {
-      if (err.message && err.message.contains('duplicate key value')) {
+      if (err.message && err.message.includes('duplicate key value')) {
         return true
       } else {
         res.serverError(err)
@@ -133,7 +140,8 @@ module.exports = {
       }
     })
     // we get here if the membership was created successfully, or if it already existed
-    .then(ok => ok && Membership.find(req.session.userId, community.id)
+    .then(ok => ok && Membership.find(req.session.userId, community.id, {includeInactive: true})
+      .tap(membership => !membership.get('active') && membership.save({active: true}, {patch: true}))
       .then(membership => _.merge(membership.toJSON(), {
         community: community.pick('id', 'name', 'slug', 'avatar_url')
       }))
@@ -160,40 +168,19 @@ module.exports = {
   },
 
   validate: function (req, res) {
-    var allowedColumns = ['name', 'slug', 'beta_access_code']
-    var allowedConstraints = ['exists', 'unique']
-    var params = _.pick(req.allParams(), 'constraint', 'column', 'value')
-
-    // prevent SQL injection
-    if (!_.include(allowedColumns, params.column)) {
-      return res.badRequest(format('invalid value "%s" for parameter "column"', params.column))
-    }
-
-    if (!params.value) {
-      return res.badRequest('missing required parameter "value"')
-    }
-
-    if (!_.include(allowedConstraints, params.constraint)) {
-      return res.badRequest(format('invalid value "%s" for parameter "constraint"', params.constraint))
-    }
-
-    var statement = format('lower(%s) = lower(?)', params.column)
-    return Community.query().whereRaw(statement, params.value).count()
-    .then(function (rows) {
-      var data
-      if (params.constraint === 'unique') {
-        data = {unique: Number(rows[0].count) === 0}
-      } else if (params.constraint === 'exists') {
-        var exists = Number(rows[0].count) >= 1
-        data = {exists: exists}
+    return Validation.validate(_.pick(req.allParams(), 'constraint', 'column', 'value'),
+      Community, ['name', 'slug', 'beta_access_code'], ['exists', 'unique'])
+    .then(validation => {
+      if (validation.badRequest) {
+        return res.badRequest(validation.badRequest)
+      } else {
+        return res.ok(validation)
       }
-      res.ok(data)
     })
     .catch(res.serverError)
   },
 
   create: function (req, res) {
-
     var attrs = _.pick(req.allParams(),
       'name', 'description', 'slug', 'category',
       'beta_access_code', 'banner_url', 'avatar_url', 'location')
@@ -232,14 +219,43 @@ module.exports = {
   },
 
   findForNetwork: function (req, res) {
-    Community.where('network_id', req.param('networkId'))
-    .fetchAll({withRelated: ['memberships']})
-    .then(communities => communities.map(c => _.extend(c.pick('id', 'name', 'slug', 'avatar_url', 'banner_url'), {
-      memberCount: c.relations.memberships.length
-    })))
-    .then(communities => _.sortBy(communities, c => -c.memberCount))
+    var total
+    var communityAttributes = ['id', 'name', 'slug', 'avatar_url', 'banner_url', 'memberCount']
+
+    return Network.find(req.param('networkId'))
+    .then(network => {
+      if (req.param('paginate')) {
+        return Community.query(qb => {
+          qb.where('network_id', network.get('id'))
+          qb.where('community.active', true)
+          qb.select(bookshelf.knex.raw('community.slug, count(users_community.user_id) as "memberCount", count(community.id) over () as total'))
+          qb.leftJoin('users_community', function () {
+            this.on('community.id', '=', 'users_community.community_id')
+          })
+          qb.groupBy('community.id')
+          qb.orderBy('memberCount', 'desc')
+          qb.orderBy('slug', 'asc')
+          qb.limit(req.param('limit') || 20)
+          qb.offset(req.param('offset') || 0)
+        }).fetchAll()
+        .tap(communities => total = (communities.length > 0 ? communities.first().get('total') : 0))
+      } else {
+        return Community.where('network_id', network.get('id'))
+        .fetchAll({withRelated: ['memberships']})
+        .then(communities => communities.map(c => _.extend(c.pick(communityAttributes), {
+          memberCount: c.relations.memberships.length
+        })))
+        .then(communities => _.sortBy(communities, c => -c.memberCount))
+      }
+    })
+    .then(communities => {
+      if (req.param('paginate')) {
+        return {communities_total: total, communities: communities.map(c => c.pick(communityAttributes))}
+      } else {
+        return communities
+      }
+    })
     .then(res.ok)
     .catch(res.serverError)
   }
-
 }

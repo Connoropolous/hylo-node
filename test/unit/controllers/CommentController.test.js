@@ -9,7 +9,7 @@ describe('CommentController', function() {
         u1: new User({name: 'U1'}).save(),
         u2: new User({name: 'U2'}).save(),
         u3: new User({name: 'U3'}).save(),
-        p1: new Post({name: 'P1'}).save(),
+        p1: new Post({name: 'P1', active: true}).save(),
         c1: new Community({name: "C1", slug: 'c1'}).save()
       });
     })
@@ -47,7 +47,7 @@ describe('CommentController', function() {
         expect(res.serverError).not.to.have.been.called();
         expect(responseData).to.exist;
         expect(responseData.user).to.exist;
-        expect(responseData.comment_text).to.equal(commentText);
+        expect(responseData.text).to.equal(commentText);
         return fixtures.p1.load('comments');
       })
       .then(post => {
@@ -110,7 +110,7 @@ describe('CommentController', function() {
       .then(function(comments) {
         var comment = comments.find(c => c.get('post_id') === fixtures.p1.id);
         expect(comment).to.exist;
-        expect(comment.get('comment_text')).to.equal('foo bar baz');
+        expect(comment.get('text')).to.equal('foo bar baz');
         expect(comment.get('user_id')).to.equal(fixtures.u3.id);
         done();
       })

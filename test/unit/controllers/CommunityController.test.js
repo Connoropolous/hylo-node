@@ -55,7 +55,7 @@ describe('CommunityController', () => {
       req.session.userId = user.id
       _.extend(req.params, {name: 'Bar', slug: 'bar'})
 
-      CommunityController.create(req, res)
+      return CommunityController.create(req, res)
       .then(() => Community.find('bar', {withRelated: ['users', 'memberships', 'leader']}))
       .then(community => {
         expect(community).to.exist
@@ -71,22 +71,28 @@ describe('CommunityController', () => {
     it('rejects non-whitelisted columns', () => {
       req.params.column = 'foo'
       CommunityController.validate(req, res)
-      expect(res.badRequest).to.have.been.called()
-      expect(res.body).to.equal('invalid value "foo" for parameter "column"')
+      .then(() => {
+        expect(res.badRequest).to.have.been.called()
+        expect(res.body).to.equal('invalid value "foo" for parameter "column"')
+      })
     })
 
     it('requires a value', () => {
       req.params.column = 'name'
       CommunityController.validate(req, res)
-      expect(res.badRequest).to.have.been.called()
-      expect(res.body).to.equal('missing required parameter "value"')
+      .then(() => {
+        expect(res.badRequest).to.have.been.called()
+        expect(res.body).to.equal('missing required parameter "value"')
+      })
     })
 
     it('requires a constraint', () => {
       _.extend(req.params, {column: 'name', value: 'foo', constraint: 'foo'})
       CommunityController.validate(req, res)
-      expect(res.badRequest).to.have.been.called()
-      expect(res.body).to.equal('invalid value "foo" for parameter "constraint"')
+      .then(() => {
+        expect(res.badRequest).to.have.been.called()
+        expect(res.body).to.equal('invalid value "foo" for parameter "constraint"')
+      })
     })
 
     describe('with an existing value', () => {
@@ -117,49 +123,6 @@ describe('CommunityController', () => {
     })
   })
 
-  describe('.invite', () => {
-    var community
-
-    before(() => {
-      Invitation.createAndSend = spy(Invitation.createAndSend)
-      community = factories.community()
-      return community.save()
-    })
-
-    beforeEach(() => {
-      req.session.userId = user.id
-    })
-
-    it('rejects invalid email', () => {
-      _.extend(req.params, {communityId: community.id, emails: 'wow, lol'})
-
-      return CommunityController.invite(req, res)
-      .then(() => {
-        expect(res.body).to.deep.equal({
-          results: [
-            {email: 'wow', error: 'not a valid email address'},
-            {email: 'lol', error: 'not a valid email address'}
-          ]
-        })
-      })
-    })
-
-    it('works', () => {
-      this.timeout(5000)
-      _.extend(req.params, {communityId: community.id, emails: 'foo@bar.com, bar@baz.com'})
-
-      return CommunityController.invite(req, res)
-      .then(() => {
-        expect(res.body).to.deep.equal({
-          results: [
-            {email: 'foo@bar.com', error: null},
-            {email: 'bar@baz.com', error: null}
-          ]
-        })
-      })
-    })
-  })
-
   describe('.joinWithCode', () => {
     var community
     beforeEach(() => {
@@ -183,6 +146,52 @@ describe('CommunityController', () => {
         expect(relatedUser).to.exist
         expect(relatedUser.id).to.equal(user.id)
         expect(user.relations.communities.map(c => c.id)).to.contain(community.id)
+      })
+    })
+  })
+
+  describe('.findForNetwork', () => {
+    var network
+    before(done => {
+      network = new Network({name: 'N1', slug: 'n1'})
+      return network.save()
+      .then(network => {
+        return Promise.join({
+          c1: new Community({name: 'NC1', slug: 'nc1', network_id: network.get('id')}).save(),
+          c2: new Community({name: 'NC2', slug: 'nc2', network_id: network.get('id')}).save(),
+          c3: new Community({name: 'NC3', slug: 'nc3'}).save(),
+          n1: network
+        })
+      })
+      .then(() => done())
+    })
+
+    it('works with slug', () => {
+      req.params.networkId = 'n1'
+      req.login(user.id)
+      return CommunityController.findForNetwork(req, res)
+      .then(() => {
+        expect(res.body.length).to.equal(2)
+        expect(Number(res.body[0].memberCount)).to.equal(0)
+        var slugs = res.body.map(c => c.slug)
+        expect(!!_.includes(slugs, 'nc1')).to.equal(true)
+        expect(!!_.includes(slugs, 'nc2')).to.equal(true)
+        expect(!!_.includes(slugs, 'nc3')).to.equal(false)
+      })
+    })
+
+    it('works with paginate', () => {
+      req.params.networkId = 'n1'
+      req.params.paginate = true
+      req.params.offset = 1
+      req.params.limit = 1
+      req.login(user.id)
+      return CommunityController.findForNetwork(req, res)
+      .then(() => {
+        expect(res.body.communities_total).to.equal('2')
+        expect(res.body.communities.length).to.equal(1)
+        expect(res.body.communities[0].slug).to.equal('nc2')
+        expect(Number(res.body.communities[0].memberCount)).to.equal(0)
       })
     })
   })

@@ -1,21 +1,93 @@
+var listModelQuerySettings = (qb, table, column, opts) => {
+  qb.limit(opts.limit || 20)
+
+  // this will require the fetch or fetchAll call to have {columns: [column]}
+  qb.groupBy(column)
+
+  if (opts.autocomplete) {
+    Search.addTermToQueryBuilder(opts.autocomplete, qb, {
+      columns: [format('%s.%s', table, column)]
+    })
+    // qb.whereRaw('users_org.org_name ilike ?', opts.autocomplete + '%')
+  }
+
+  qb.whereRaw(format('length(%s) < 40', column))
+}
+
 module.exports = {
   forProjects: function (opts) {
     return Project.query(qb => {
       if (opts.user) {
-        qb.leftJoin('projects_users', () => this.on('projects.id', '=', 'projects_users.project_id'))
-        qb.where(() => this.where('projects.user_id', opts.user)
-            .orWhere('projects_users.user_id', opts.user))
+        qb.leftJoin('projects_users', function () {
+          this.on('projects.id', '=', 'projects_users.project_id')
+        })
+        qb.where(function () {
+          this.where('projects.user_id', opts.user)
+          .orWhere('projects_users.user_id', opts.user)
+        })
       }
 
       if (opts.community) {
-        qb.where('community_id', opts.community)
+        qb.where(function () {
+          var clause = this.whereIn('community_id', opts.community)
+
+          if (opts.includePublic) {
+            clause.orWhere('visibility', Project.Visibility.PUBLIC)
+          }
+
+          if (opts.publicOnly) {
+            clause.andWhere('visibility', Project.Visibility.PUBLIC)
+          }
+        })
+      } else if (opts.publicOnly) {
+        qb.where('visibility', Project.Visibility.PUBLIC)
       }
 
       if (opts.published) {
         qb.whereRaw('published_at is not null')
       }
 
+      if (opts.term) {
+        Search.addTermToQueryBuilder(opts.term, qb, {
+          columns: ['projects.title', 'projects.intention', 'projects.details']
+        })
+      }
+
+      // this counts total rows matching the criteria, disregarding limit,
+      // which is useful for pagination
+      qb.select(bookshelf.knex.raw('projects.*, count(*) over () as total'))
+
+      qb.limit(opts.limit)
+      qb.offset(opts.offset)
       qb.groupBy('projects.id')
+      qb.orderBy('projects.updated_at', 'desc')
+    })
+  },
+
+  forCommunities: function (opts) {
+    return Community.query(qb => {
+      if (opts.communities) {
+        qb.whereIn('community.id', opts.communities)
+      }
+
+      if (opts.autocomplete) {
+        qb.whereRaw('community.name ilike ?', opts.autocomplete + '%')
+      }
+
+      if (opts.term) {
+        Search.addTermToQueryBuilder(opts.term, qb, {
+          columns: ['community.name']
+        })
+      }
+
+      // this counts total rows matching the criteria, disregarding limit,
+      // which is useful for pagination
+      qb.select(bookshelf.knex.raw('community.*, count(*) over () as total'))
+
+      qb.limit(opts.limit)
+      qb.offset(opts.offset)
+      qb.groupBy('community.id')
+      qb.orderBy('community.name', 'asc')
     })
   },
 
@@ -110,17 +182,32 @@ module.exports = {
       // which is useful for pagination
       qb.select(bookshelf.knex.raw('count(users.*) over () as total'))
 
-      if (opts.communities) {
+      if (opts.communities && opts.project) {
+        qb.leftJoin('users_community', 'users_community.user_id', '=', 'users.id')
+        qb.leftJoin('projects_users', 'projects_users.user_id', '=', 'users.id')
+        qb.leftJoin('projects', 'projects.user_id', '=', 'users.id')
+
+        qb.where(function () {
+          this.where(function () {
+            this.whereIn('users_community.community_id', opts.communities)
+            this.where('users_community.active', true)
+          })
+          .orWhere(function () {
+            this.where('projects.id', opts.project)
+            .orWhere('projects_users.project_id', opts.project)
+          })
+        })
+      } else if (opts.communities) {
         qb.join('users_community', 'users_community.user_id', '=', 'users.id')
         qb.whereIn('users_community.community_id', opts.communities)
         qb.where('users_community.active', true)
-      }
-
-      if (opts.project) {
+      } else if (opts.project) {
         qb.join('projects_users', 'projects_users.user_id', '=', 'users.id')
         qb.leftJoin('projects', 'projects.user_id', '=', 'users.id')
-        qb.where(() => this.where('projects.id', opts.project)
-            .orWhere('projects_users.project_id', opts.project))
+        qb.where(function () {
+          this.where('projects.id', opts.project)
+          .orWhere('projects_users.project_id', opts.project)
+        })
       }
 
       if (opts.autocomplete) {
@@ -148,25 +235,39 @@ module.exports = {
     })
   },
 
+  forSkills: function (opts) {
+    return Skill.query(qb => {
+      listModelQuerySettings(qb, 'users_skill', 'skill_name', opts)
+    })
+  },
+
+  forOrganizations: function (opts) {
+    return Organization.query(qb => {
+      listModelQuerySettings(qb, 'users_org', 'org_name', opts)
+    })
+  },
+
   addTermToQueryBuilder: function (term, qb, opts) {
     var query = _.chain(term.split(/\s*\s/)) // split on whitespace
-        .map(word => word.replace(/[,;'|:&()!\\]+/, ''))
-        .reject(_.isEmpty)
-        .map(word => word + ':*') // add prefix matching
-        .reduce((result, word) => {
-          // build the tsquery string using logical AND operands
-          result += ' & ' + word
-          return result
-        }).value()
+    .map(word => word.replace(/[,;|:&()!\\]+/, ''))
+    .reject(_.isEmpty)
+    .map(word => word + ':*') // add prefix matching
+    .reduce((result, word) => {
+      // build the tsquery string using logical AND operands
+      result += ' & ' + word
+      return result
+    }).value()
 
     var statement = format('(%s)',
-        opts.columns
-          .map(col => format("(to_tsvector('english', %s) @@ to_tsquery(?))", col))
-          .join(' or '))
+      opts.columns
+      .map(col => format("(to_tsvector('english', %s) @@ to_tsquery(?))", col))
+      .join(' or '))
 
     var values = _.times(opts.columns.length, () => query)
 
-    qb.where(() => this.whereRaw(statement, values))
+    qb.where(function () {
+      this.whereRaw(statement, values)
+    })
   }
 
 }

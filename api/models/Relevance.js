@@ -29,7 +29,7 @@ module.exports = bookshelf.Model.extend({
       created_at: new Date()
     }).save()
     .catch(err => {
-      if (!err.message || !err.message.contains('duplicate key')) throw err;
+      if (!err.message || !err.message.includes('duplicate key')) throw err;
 
       return Relevance.query().where({
         user_id: userId,
@@ -83,7 +83,7 @@ module.exports = bookshelf.Model.extend({
       .whereIn('network_id', post.relations.communities.pluck('network_id')))
     .then(rows => Search.forUsers({
       exclude: [post.get('user_id')],
-      community: _.union(post.relations.communities.pluck('id'), _.pluck(rows, 'id')),
+      community: _.union(post.relations.communities.pluck('id'), _.map(rows, 'id')),
       limit: 1000000
     }).fetchAll({withRelated: ['posts', 'organizations', 'skills']}))
     .then(users => Promise.map(users.models, user =>
@@ -100,7 +100,7 @@ module.exports = bookshelf.Model.extend({
     return global[model].query().select('id')
       .whereRaw('updated_at between ? and ?', [startTime, endTime])
     .tap(rows => sails.log.debug())
-    .then(rows => _.pluck(rows, 'id'))
+    .then(rows => _.map(rows, 'id'))
     .then(ids => Promise.map(ids, id => {
       sails.log.debug(format('generating relevance scores for %s %s', model, id));
       return generateMethod.call(self, id, serendipity);
